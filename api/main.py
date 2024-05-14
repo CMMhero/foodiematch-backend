@@ -126,7 +126,8 @@ def recommend():
     user_id = request.args.get('id')
     user_lat = float(request.args.get('lat'))
     user_lon = float(request.args.get('lon'))
-    recommendations = get_recommendations(user_id, user_lat, user_lon)
+    num_recommendations = int(request.args.get('num', 10))
+    recommendations = get_recommendations(user_id, user_lat, user_lon, num_recommendations)
     return recommendations
     # return jsonify(recommendations)
 
