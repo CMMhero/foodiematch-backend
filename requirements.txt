@@ -1,4 +1,4 @@
 Flask==3.0.3
 pandas==2.2.2
-sklearn
+scikit-learn
 requests==2.31.0
