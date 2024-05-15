@@ -51,7 +51,7 @@ def get_recommendations_v2(user_id, user_lat, user_lon, num_recommendations=10):
         price_low, price_high, min_rating, max_distance = 0, 4, 4, 5
         halal_only = False
     else:
-        price_low, price_high, min_rating, max_distance, halal_only = user_preferences[['price_low', 'price_high', 'min_rating', 'max_distance', 'halal_only']].values[0]
+        price_low, price_high, min_rating, max_distance, halal_only = user_preferences[['price_low', 'price_high', 'min_rating', 'max_distance', 'halal_only']].iloc[0]
 
     # Filter restaurants based on user preferences
     filtered_restaurants = restaurants[
@@ -64,6 +64,7 @@ def get_recommendations_v2(user_id, user_lat, user_lon, num_recommendations=10):
 
     # Remove restaurants the user has already liked and the same restaurant chain
     filtered_restaurants = filtered_restaurants[~filtered_restaurants['resto_id'].isin(user_liked_restos)]
+    filtered_restaurants = filtered_restaurants[~filtered_restaurants['resto_id'].isin(user_disliked_restos)]
 
     liked_chain = restaurants[restaurants['resto_id'].isin(user_liked_restos)]['chain']
     filtered_restaurants = filtered_restaurants[~filtered_restaurants['chain'].isin(liked_chain)]
@@ -72,33 +73,28 @@ def get_recommendations_v2(user_id, user_lat, user_lon, num_recommendations=10):
     filtered_restaurants = filtered_restaurants[~filtered_restaurants['chain'].isin(disliked_chain)]
 
     # Calculate scores for collaborative filtering and content-based filtering
-    cf_scores = []
-    cbf_scores = []
-    hybrid_scores = []
+    cf_scores, cbf_scores, hybrid_scores = [], [], []
 
     for index, row in filtered_restaurants.iterrows():
-        resto_id = row['resto_id']
-        if resto_id in user_disliked_restos:
-            cf_score = cbf_score = hybrid_score = 0.0
-        else:
-            top_users = user_similarity[user_id].nlargest(6).index[1:]
-            total_similarity = user_similarity.loc[user_id, top_users].sum()
+      resto_id = row['resto_id']
+      top_users = user_similarity[user_id].nlargest(6).index[1:]
+      total_similarity = user_similarity.loc[user_id, top_users].sum()
 
-            cf_score = 0
-            for similar_user in top_users:
-                similarity = (user_similarity.loc[user_id, similar_user] / total_similarity) * user_similarity.loc[user_id, similar_user]
-                if resto_id in user_resto_matrix.columns:
-                    if similar_user in user_resto_matrix.index:
-                        rating = user_resto_matrix.loc[similar_user, resto_id]
-                        cf_score += similarity * rating
+      cf_score = 0
+      for similar_user in top_users:
+          similarity = (user_similarity.loc[user_id, similar_user] / total_similarity) * user_similarity.loc[user_id, similar_user]
+          if resto_id in user_resto_matrix.columns:
+              if similar_user in user_resto_matrix.index:
+                  rating = user_resto_matrix.loc[similar_user, resto_id]
+                  cf_score += similarity * rating
 
-            cbf_score = resto_similarity.loc[user_liked_restos, resto_id].mean()
+      cbf_score = resto_similarity.loc[user_liked_restos, resto_id].mean()
 
-            hybrid_score = 0.5 * cf_score + 0.5 * cbf_score
+      hybrid_score = 0.5 * cf_score + 0.5 * cbf_score
 
-        cf_scores.append(cf_score)
-        cbf_scores.append(cbf_score)
-        hybrid_scores.append(hybrid_score)
+      cf_scores.append(cf_score)
+      cbf_scores.append(cbf_score)
+      hybrid_scores.append(hybrid_score)
 
     filtered_restaurants['cf_score'] = cf_scores
     filtered_restaurants['cbf_score'] = cbf_scores
@@ -120,10 +116,6 @@ def get_recommendations_v2(user_id, user_lat, user_lon, num_recommendations=10):
         'cbf_recommendations': cbf_recommendations_with_scores,
         'hybrid_recommendations': hybrid_recommendations_with_scores
     }
-
-    # hybrid_recommendations = filtered_restaurants.sort_values('hybrid_score', ascending=False)[:num_recommendations]
-
-    # return hybrid_recommendations[['name', 'image_url', 'price_level', 'rating', 'tags']].to_dict('records')
 
 def get_recommendations(user_id, user_lat, user_lon, num_recommendations=10):
     # Get tables
