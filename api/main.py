@@ -22,6 +22,8 @@ def get_recommendations(user_id, user_lat, user_lon, num_recommendations=10):
     ratings = pd.DataFrame(requests.get("https://foodiematch-api.vercel.app/db/ratings").json())
     preferences = pd.DataFrame(requests.get("https://foodiematch-api.vercel.app/db/preferences").json())
 
+    restaurants['tags'] = restaurants['tags'].apply(lambda x: ' '.join(x))
+
     # CF
     user_resto_matrix = ratings.pivot(index='user_id', columns='resto_id', values='is_liked').fillna(0)
     user_similarity = cosine_similarity(user_resto_matrix)
