@@ -86,7 +86,7 @@ def get_recommendations_v2(user_id, user_lat, user_lon, num_recommendations=10):
 
             cf_score = 0
             for similar_user in top_users:
-                similarity = user_similarity.loc[user_id, similar_user] / total_similarity
+                similarity = (user_similarity.loc[user_id, similar_user] / total_similarity) * user_similarity.loc[user_id, similar_user]
                 if resto_id in user_resto_matrix.columns:
                     if similar_user in user_resto_matrix.index:
                         rating = user_resto_matrix.loc[similar_user, resto_id]
