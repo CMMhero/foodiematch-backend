@@ -1,38 +1,11 @@
 from math import asin, cos, radians, sin, sqrt
 
-import numpy as np
 import pandas as pd
+import requests
 from flask import Flask, jsonify, request
-from scipy.spatial.distance import cosine
 from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.metrics.pairwise import cosine_similarity, linear_kernel
-from supabase import Client, create_client
+from sklearn.metrics.pairwise import cosine_similarity
 
-# Supabase config
-supabase_url = 'https://knuqcixcjyymqbzekkqc.supabase.co'
-supabase_key = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtudXFjaXhjanl5bXFiemVra3FjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MTM5NDIzNTYsImV4cCI6MjAyOTUxODM1Nn0.hr5kkLMIM0GLIC_Dp3m2Pq_qdCgXYYxRWwt333Xc9xs'
-supabase = create_client(supabase_url, supabase_key)
-
-# Get tables
-restaurants = pd.DataFrame(supabase.table("restaurants").select("*").execute().data)
-ratings = pd.DataFrame(supabase.table("ratings").select("*").execute().data)
-preferences = pd.DataFrame(supabase.table("preferences").select("*").execute().data)
-
-# Preprocess data
-restaurants['tags'] = restaurants['tags'].apply(lambda x: ' '.join([tag['displayName'] for tag in x]))
-
-# CF
-user_resto_matrix = ratings.pivot(index='user_id', columns='resto_id', values='is_liked').fillna(0)
-user_similarity = cosine_similarity(user_resto_matrix)
-user_similarity = pd.DataFrame(user_similarity, index=user_resto_matrix.index, columns=user_resto_matrix.index)
-
-# CBF
-tfidf = TfidfVectorizer(stop_words='english')
-tfidf_matrix = tfidf.fit_transform(restaurants['tags'])
-resto_id_mapping = dict(zip(restaurants.index, restaurants['resto_id']))
-resto_similarity = cosine_similarity(tfidf_matrix, tfidf_matrix)
-resto_ids = [resto_id_mapping[idx] for idx in restaurants.index]
-resto_similarity = pd.DataFrame(resto_similarity, index=resto_ids, columns=resto_ids)
 
 def haversine(lon1, lat1, lon2, lat2):
     lon1, lat1, lon2, lat2 = map(radians, [lon1, lat1, lon2, lat2])
@@ -44,6 +17,24 @@ def haversine(lon1, lat1, lon2, lat2):
     return c * r
 
 def get_recommendations(user_id, user_lat, user_lon, num_recommendations=10):
+    # Get tables
+    restaurants = pd.DataFrame(requests.get("https://foodiematch-api.vercel.app/db/restaurants").json())
+    ratings = pd.DataFrame(requests.get("https://foodiematch-api.vercel.app/db/ratings").json())
+    preferences = pd.DataFrame(requests.get("https://foodiematch-api.vercel.app/db/preferences").json())
+
+    # CF
+    user_resto_matrix = ratings.pivot(index='user_id', columns='resto_id', values='is_liked').fillna(0)
+    user_similarity = cosine_similarity(user_resto_matrix)
+    user_similarity = pd.DataFrame(user_similarity, index=user_resto_matrix.index, columns=user_resto_matrix.index)
+
+    # CBF
+    tfidf = TfidfVectorizer(stop_words='english')
+    tfidf_matrix = tfidf.fit_transform(restaurants['tags'])
+    resto_id_mapping = dict(zip(restaurants.index, restaurants['resto_id']))
+    resto_similarity = cosine_similarity(tfidf_matrix, tfidf_matrix)
+    resto_ids = [resto_id_mapping[idx] for idx in restaurants.index]
+    resto_similarity = pd.DataFrame(resto_similarity, index=resto_ids, columns=resto_ids)
+
     user_preferences = preferences.loc[preferences['user_id'] == user_id]
 
     user_liked_restos = ratings.loc[(ratings['user_id'] == user_id) & (ratings['is_liked'] == True), 'resto_id'].tolist()
@@ -54,15 +45,16 @@ def get_recommendations(user_id, user_lat, user_lon, num_recommendations=10):
         return default_recommendations[['name', 'image_url', 'price_level', 'rating', 'tags']].to_dict('records')
 
     if user_preferences.empty:
-        price_low, price_high, min_rating = 0, 5, 0
+        price_low, price_high, min_rating = 0, 4, 0
         max_distance = float('inf')
     else:
         price_low, price_high, min_rating, max_distance = user_preferences[['price_low', 'price_high', 'min_rating', 'max_distance']].values[0]
 
     filtered_restaurants = restaurants[
-        (restaurants['price_level'] >= price_low) &
-        (restaurants['price_level'] <= price_high) &
+        # (restaurants['price_level'] >= price_low) &
+        # (restaurants['price_level'] <= price_high) &
         (restaurants['rating'] >= min_rating) &
+        # (restaurants['halal'] == halal) &
         (restaurants.apply(lambda row: haversine(user_lon, user_lat, row['longitude'], row['latitude']), axis=1) <= max_distance)
     ]
 
@@ -105,9 +97,9 @@ def get_recommendations(user_id, user_lat, user_lon, num_recommendations=10):
         # 'cf_recommendations': cf_recommendations[['name']].to_dict('records'),
         # 'cbf_recommendations': cbf_recommendations[['name']].to_dict('records'),
         # 'hybrid_recommendations': hybrid_recommendations[['name']].to_dict('records')
-        'cf_recommendations': cf_recommendations[['name', 'image_url', 'price_level', 'rating', 'tags']].to_dict('records'),
-        'cbf_recommendations': cbf_recommendations[['name', 'image_url', 'price_level', 'rating', 'tags']].to_dict('records'),
-        'hybrid_recommendations': hybrid_recommendations[['name', 'image_url', 'price_level', 'rating', 'tags']].to_dict('records')
+        'cf_recommendations': cf_recommendations[['name', 'image_url', 'halal', 'rating', 'tags']].to_dict('records'),
+        'cbf_recommendations': cbf_recommendations[['name', 'image_url', 'halal', 'rating', 'tags']].to_dict('records'),
+        'hybrid_recommendations': hybrid_recommendations[['name', 'image_url', 'halal', 'rating', 'tags']].to_dict('records')
     }
 
 app = Flask(__name__)
@@ -121,8 +113,15 @@ def home():
 def about():
     return "nice"
 
+@app.route('/menus')
+def menus():
+  menus = pd.DataFrame(supabase.table("menus").select("*, restaurants(name)").execute().data)
+  resto_ids = menus['resto_id'].unique()
+  return jsonify({'resto_ids': resto_ids.tolist()})
+
 @app.route('/recommend')
 def recommend():
+    # recommendation()
     user_id = request.args.get('id')
     user_lat = float(request.args.get('lat'))
     user_lon = float(request.args.get('lon'))
