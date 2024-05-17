@@ -43,9 +43,9 @@ def get_recommendations(user_id, user_lat, user_lon, num_recommendations=10):
     user_liked_restos = ratings.loc[(ratings['user_id'] == user_id) & (ratings['is_liked'] == True), 'resto_id'].tolist()
     user_disliked_restos = ratings.loc[(ratings['user_id'] == user_id) & (ratings['is_liked'] == False), 'resto_id'].tolist()
 
-    if user_preferences.empty and not user_liked_restos and not user_disliked_restos:
-        default_recommendations = restaurants.sort_values('rating', ascending=False)[:num_recommendations]
-        return default_recommendations[['name', 'image_url', 'price_level', 'rating', 'tags']].to_dict('records')
+    # if user_preferences.empty and not user_liked_restos and not user_disliked_restos:
+    #     default_recommendations = restaurants.sort_values('rating', ascending=False)[:num_recommendations]
+    #     return default_recommendations[['name', 'image_url', 'price_level', 'rating', 'tags']].to_dict('records')
 
     if user_preferences.empty:
         price_low, price_high, min_rating, max_distance = 0, 4, 4, 5
@@ -81,12 +81,13 @@ def get_recommendations(user_id, user_lat, user_lon, num_recommendations=10):
       total_similarity = user_similarity.loc[user_id, top_users].sum()
 
       cf_score = 0
-      for similar_user in top_users:
-          similarity = (user_similarity.loc[user_id, similar_user] / total_similarity) * user_similarity.loc[user_id, similar_user]
-          if resto_id in user_resto_matrix.columns:
-              if similar_user in user_resto_matrix.index:
-                  rating = user_resto_matrix.loc[similar_user, resto_id]
-                  cf_score += similarity * rating
+      if total_similarity > 0:
+        for similar_user in top_users:
+            similarity = (user_similarity.loc[user_id, similar_user] / total_similarity) * user_similarity.loc[user_id, similar_user]
+            if resto_id in user_resto_matrix.columns:
+                if similar_user in user_resto_matrix.index:
+                    rating = user_resto_matrix.loc[similar_user, resto_id]
+                    cf_score += similarity * rating
 
       cbf_score = resto_similarity.loc[user_liked_restos, resto_id].mean()
 
@@ -96,9 +97,7 @@ def get_recommendations(user_id, user_lat, user_lon, num_recommendations=10):
       cbf_scores.append(cbf_score)
       hybrid_scores.append(hybrid_score)
 
-    filtered_restaurants['cf_score'] = cf_scores
-    filtered_restaurants['cbf_score'] = cbf_scores
-    filtered_restaurants['hybrid_score'] = hybrid_scores
+    filtered_restaurants = filtered_restaurants.assign(cf_score=cf_scores, cbf_score=cbf_scores, hybrid_score=hybrid_scores)
 
     # Filter out restaurants with the same chain
     filtered_restaurants = filtered_restaurants.drop_duplicates(subset='chain', keep='first')
